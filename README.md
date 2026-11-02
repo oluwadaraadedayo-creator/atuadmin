@@ -71,3 +71,4 @@ Single admin role: every administrator can do everything. Refunds only update yo
 People who want to sell apply on the For Artists page. Open the Applications tab here to see them. Approving makes the person a verified artist in one step and emails them. Turning one down needs a message, which they see in their email and on their account.
 
 Run `sql/009_artist_applications.sql` in the Supabase SQL Editor once. To have the approval and rejection emails sent from this admin, add three Environment Variables to THIS Vercel project (the admin one) and redeploy: `RESEND_API_KEY` (the same key as your main project), `EMAIL_FROM` (for example `A Thousand Units <hello@yourdomain.com>`) and `SITE_URL` (your public site address). Without them a decision still works, but the person is not emailed. The Applications tab tells you when an email could not be sent.
+
