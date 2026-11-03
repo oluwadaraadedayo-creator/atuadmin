@@ -1,0 +1,40 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/register-audio",
+      "destination": "/api/files?route=register-audio"
+    },
+    {
+      "source": "/api/remove-audio",
+      "destination": "/api/files?route=remove-audio"
+    },
+    {
+      "source": "/api/register-preview",
+      "destination": "/api/files?route=register-preview"
+    },
+    {
+      "source": "/api/remove-preview",
+      "destination": "/api/files?route=remove-preview"
+    },
+    {
+      "source": "/api/register-artwork",
+      "destination": "/api/files?route=register-artwork"
+    },
+    {
+      "source": "/api/download",
+      "destination": "/api/files?route=download"
+    },
+    {
+      "source": "/api/previews",
+      "destination": "/api/files?route=previews"
+    },
+    {
+      "source": "/api/apply",
+      "destination": "/api/files?route=apply"
+    },
+    {
+      "source": "/api/config",
+      "destination": "/api/files?route=config"
+    }
+  ]
+}
