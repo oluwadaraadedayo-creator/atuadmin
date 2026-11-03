@@ -4,8 +4,8 @@ import type { ApiResult } from './api'
 
 type Row = Record<string, any>
 type List = { rows: Row[]; page: number; hasMore: boolean }
-type Tab = 'overview' | 'people' | 'applications' | 'reports' | 'releases' | 'orders' | 'categories' | 'activity'
-const TABS: [Tab, string][] = [['overview', 'Overview'], ['people', 'People'], ['applications', 'Applications'], ['reports', 'Reports'], ['releases', 'Releases'], ['orders', 'Orders'], ['categories', 'Categories'], ['activity', 'Activity']]
+type Tab = 'overview' | 'people' | 'applications' | 'email' | 'reports' | 'releases' | 'orders' | 'categories' | 'activity'
+const TABS: [Tab, string][] = [['overview', 'Overview'], ['people', 'People'], ['applications', 'Applications'], ['email', 'Email'], ['reports', 'Reports'], ['releases', 'Releases'], ['orders', 'Orders'], ['categories', 'Categories'], ['activity', 'Activity']]
 
 type Ask = {
   title: string; intro?: string; confirm: string; danger?: boolean
@@ -45,6 +45,7 @@ export function Dashboard({ me, onSignOut }: { me: { id: string; email: string }
       {tab === 'overview' && <Overview ctx={ctx} />}
       {tab === 'people' && <People ctx={ctx} />}
       {tab === 'applications' && <Applications ctx={ctx} />}
+      {tab === 'email' && <EmailTab ctx={ctx} />}
       {tab === 'reports' && <Reports ctx={ctx} />}
       {tab === 'releases' && <Releases ctx={ctx} />}
       {tab === 'orders' && <Orders ctx={ctx} />}
@@ -132,6 +133,32 @@ function People({ ctx }: { ctx: Ctx }) {
     </tbody></table></div>
     {data && !data.rows.length && !loading && <p className="muted">Nobody matches.</p>}
     {data && <Pager page={page} hasMore={data.hasMore} set={setPage} />}
+  </section>
+}
+
+function EmailTab({ ctx }: { ctx: Ctx }) {
+  const [page, setPage] = useState(0); const [busy, setBusy] = useState(false); const [result, setResult] = useState<{ ok: boolean; skipped?: boolean; error: string | null; to: string } | null>(null)
+  const status = useData<Row>('email.status', {}, [ctx.bump, result])
+  const log = useData<List>('email.log', { page }, [page, ctx.bump, result])
+  const s = status.data
+  const checks: [boolean, string][] = s ? [
+    [s.keySet && s.keyLooksRight, !s.keySet ? 'RESEND_API_KEY is missing in this project.' : !s.keyLooksRight ? 'RESEND_API_KEY does not look like a Resend key. Real keys start with re_ and are about 30 to 40 characters. An email address in this box is the most common mistake.' : `Resend key is set (ends in ${s.keyEnding}).`],
+    [s.senderSet && s.senderValid && !s.senderIsTestAddress && !s.senderIsFreeMail, !s.senderSet ? 'EMAIL_FROM is missing in this project.' : !s.senderValid ? 'EMAIL_FROM is not in the right format. It must look like: A Thousand Units <hello@yourdomain.com>' : s.senderIsTestAddress ? `EMAIL_FROM is ${s.sender}, which is Resend's test address. It can only email the account owner. Use an address on your verified domain.` : s.senderIsFreeMail ? `EMAIL_FROM is ${s.sender}. Resend cannot send from Gmail or other free mail. Use an address on your own verified domain.` : `Sender is ${s.sender}. Check that its domain shows Verified in the Resend account that owns this key.`],
+    [Boolean(s.siteUrl), s.siteUrl ? `Site address is ${s.siteUrl}.` : 'SITE_URL is missing or not a web address. Links in emails will be left out.']
+  ] : []
+  const send = async () => { setBusy(true); const r = await adminApi<{ ok: boolean; skipped?: boolean; error: string | null; to: string }>('email.test'); setBusy(false); if (r.ok && r.data) setResult(r.data); else setResult({ ok: false, error: r.error || 'The request failed', to: '' }) }
+  return <section><h1>Email</h1>
+    <p className="muted">This checks the email settings of this admin project. The main site has its own settings, but its emails show up in the log below, so its problems appear here too.</p>
+    <State loading={status.loading} error={status.error} />
+    <div className="card">{checks.map(([good, msg], i) => <p key={i}><Pill tone={good ? 'good' : 'bad'}>{good ? 'OK' : 'Fix'}</Pill> {msg}</p>)}</div>
+    <div className="row"><button className="btn primary" disabled={busy} onClick={send}>{busy ? 'Sending...' : 'Send me a test email'}</button></div>
+    {result && <p className={result.ok ? 'notice' : 'error'}>{result.ok ? `Sent to ${result.to}. Check that inbox, and spam too.` : result.skipped ? 'Not sent. Email is not set up in this project.' : `Not sent. ${result.error}`}</p>}
+    <h2>Recent emails</h2><State loading={log.loading} error={log.error} />
+    <div className="scroll"><table><thead><tr><th>When</th><th>Email</th><th>Result</th><th>Details</th></tr></thead><tbody>
+      {log.data?.rows.map(r => <tr key={r.id}><td>{when(r.created_at)}</td><td><code>{r.template}</code></td><td><Pill tone={r.status === 'sent' ? 'good' : r.status === 'failed' ? 'bad' : 'warn'}>{r.status}</Pill></td><td className="wraptext">{r.error || ''}</td></tr>)}
+    </tbody></table></div>
+    {log.data && !log.data.rows.length && !log.loading && <p className="muted">No emails have been attempted yet.</p>}
+    {log.data && <Pager page={page} hasMore={log.data.hasMore} set={setPage} />}
   </section>
 }
 

@@ -1,5 +1,5 @@
 import { adminClient, requireAdmin, audit, isUuid } from './_guard.js'
-import { sendDecisionEmail } from './_email.js'
+import { sendDecisionEmail, emailStatus, sendTestEmail } from './_email.js'
 
 const PAGE = 25
 const bad = (message, status = 400) => Object.assign(new Error(message), { status })
@@ -108,6 +108,23 @@ const ACTIONS = {
       if (found?.user?.email) emailed = await sendDecisionEmail(db, { applicationId: id, to: found.user.email, decision, stageName: app.stage_name, note })
     } catch (e) { console.error('decision email failed', e?.message) }
     return { result: { ok: true, emailed }, audit: ['application.decide', 'application', id, { decision, note, userId: app.user_id, emailed }] }
+  },
+
+  // What this project's email settings look like, without revealing the key.
+  'email.status': async () => emailStatus(),
+
+  // Sends a real test email to the administrator's own address and reports exactly what happened.
+  'email.test': async ({ db, admin }) => {
+    const r = await sendTestEmail(db, admin.email)
+    return { result: { ok: r.ok === true, skipped: r.skipped === true, error: r.error || null, to: admin.email }, audit: ['email.test', 'email', null, { ok: r.ok === true }] }
+  },
+
+  // The most recent email attempts from BOTH the main site and this admin, which share one log.
+  'email.log': async ({ db, p }) => {
+    const page = pageNo(p.page)
+    const { data, error } = await db.from('email_log').select('id,template,ref,status,error,created_at').order('created_at', { ascending: false }).range(page * PAGE, page * PAGE + PAGE)
+    if (error) throw bad('Could not load the email log', 500)
+    return listed(data || [], page)
   },
 
   'reports.list': async ({ db, p }) => {
