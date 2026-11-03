@@ -4,8 +4,8 @@ import type { ApiResult } from './api'
 
 type Row = Record<string, any>
 type List = { rows: Row[]; page: number; hasMore: boolean }
-type Tab = 'overview' | 'people' | 'applications' | 'email' | 'reports' | 'releases' | 'orders' | 'categories' | 'activity'
-const TABS: [Tab, string][] = [['overview', 'Overview'], ['people', 'People'], ['applications', 'Applications'], ['email', 'Email'], ['reports', 'Reports'], ['releases', 'Releases'], ['orders', 'Orders'], ['categories', 'Categories'], ['activity', 'Activity']]
+type Tab = 'overview' | 'people' | 'applications' | 'email' | 'reports' | 'payouts' | 'releases' | 'orders' | 'categories' | 'activity'
+const TABS: [Tab, string][] = [['overview', 'Overview'], ['people', 'People'], ['applications', 'Applications'], ['email', 'Email'], ['reports', 'Reports'], ['releases', 'Releases'], ['orders', 'Orders'], ['payouts', 'Payouts'], ['categories', 'Categories'], ['activity', 'Activity']]
 
 type Ask = {
   title: string; intro?: string; confirm: string; danger?: boolean
@@ -46,6 +46,7 @@ export function Dashboard({ me, onSignOut }: { me: { id: string; email: string }
       {tab === 'people' && <People ctx={ctx} />}
       {tab === 'applications' && <Applications ctx={ctx} />}
       {tab === 'email' && <EmailTab ctx={ctx} />}
+      {tab === 'payouts' && <Payouts ctx={ctx} />}
       {tab === 'reports' && <Reports ctx={ctx} />}
       {tab === 'releases' && <Releases ctx={ctx} />}
       {tab === 'orders' && <Orders ctx={ctx} />}
@@ -133,6 +134,44 @@ function People({ ctx }: { ctx: Ctx }) {
     </tbody></table></div>
     {data && !data.rows.length && !loading && <p className="muted">Nobody matches.</p>}
     {data && <Pager page={page} hasMore={data.hasMore} set={setPage} />}
+  </section>
+}
+
+// A spreadsheet treats a cell that starts with = + - or @ as a formula, so names are made safe first.
+const csvCell = (v: string | number) => { const t = String(v ?? ''); const safe = /^[=+\-@\t\r]/.test(t) ? `'${t}` : t; return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe }
+const naira = (minor: number) => ((minor || 0) / 100).toFixed(2)
+function Payouts({ ctx }: { ctx: Ctx }) {
+  const [range, setRange] = useState('month'); const [page, setPage] = useState(0)
+  const totals = useData<Row>('payouts.totals', { range }, [range, ctx.bump])
+  const list = useData<List>('payouts.list', { range, page }, [range, page, ctx.bump])
+  const t = totals.data
+  const cards: [string, string, boolean?][] = t ? [
+    ['Gross sales', money(t.grossMinor)], ['Paid sales', String(t.paidOrders)], ['Units sold', String(t.units)], ['Platform fees', money(t.feeMinor)], ['Refunded', money(t.refundedMinor)],
+    ['Held by you, not split', money(t.unsplitGrossMinor), t.unsplitGrossMinor > 0], ['Artists with sales but no payout account', String(t.artistsWithoutPayout), t.artistsWithoutPayout > 0]
+  ] : []
+  const exportCsv = () => {
+    const head = ['Artist', 'Email', 'Payout account', 'Paid sales', 'Units', 'Gross (NGN)', 'Platform fee (NGN)', 'Sent to artist by Paystack (NGN)', 'Held by A Thousand Units (NGN)', 'Refunded (NGN)']
+    const rows = (list.data?.rows || []).map(r => [r.display_name, r.email, r.payout_connected ? `${r.bank_name || 'Bank'} ****${r.account_last4}` : 'Not connected', r.paid_orders, r.units, naira(r.gross_minor), naira(r.fee_minor), naira(r.to_artist_minor), naira(r.held_minor), naira(r.refunded_minor)])
+    const url = URL.createObjectURL(new Blob([[head, ...rows].map(r => r.map(csvCell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' }))
+    const a = document.createElement('a'); a.href = url; a.download = `payouts-${range}.csv`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
+  return <section><h1>Payouts</h1>
+    <p className="notice">These figures come from this site's own records. Paystack's dashboard is the source of truth for what has actually settled, so compare the two each week.</p>
+    <div className="row"><select aria-label="Date range" value={range} onChange={e => { setRange(e.target.value); setPage(0) }}><option value="month">This month</option><option value="30d">Last 30 days</option><option value="all">All time</option></select>
+      <button className="btn" onClick={exportCsv} disabled={!list.data?.rows.length}>Export this page (CSV)</button></div>
+    <State loading={totals.loading} error={totals.error} />
+    <div className="cards">{cards.map(([l, v, hot]) => <div key={l} className={`stat ${hot ? 'hot' : ''}`}><span>{l}</span><strong>{v}</strong></div>)}</div>
+    {t && t.unsplitOrders > 0 && <p className="error">{t.unsplitOrders} {t.unsplitOrders === 1 ? 'sale was' : 'sales were'} not split, so A Thousand Units is holding {money(t.unsplitGrossMinor)} that belongs partly to artists. Pay those artists their share by hand (the sale price minus your fee). Remove ALLOW_UNSPLIT_SALES in Vercel to stop new unsplit sales.</p>}
+    <State loading={list.loading} error={list.error} />
+    <div className="scroll"><table><thead><tr><th>Artist</th><th>Payout account</th><th>Sales</th><th>Gross</th><th>Fee</th><th>Sent by Paystack</th><th>Held by you</th><th>Refunded</th></tr></thead><tbody>
+      {list.data?.rows.map(r => <tr key={r.creator_id}><td><b>{r.display_name}</b><br /><span className="muted">{r.email}</span></td>
+        <td>{r.payout_connected ? <>{r.bank_name || 'Bank'} <code>****{r.account_last4}</code></> : <Pill tone="warn">Not connected</Pill>}</td>
+        <td>{r.paid_orders} <span className="muted">({r.units} {r.units === 1 ? 'unit' : 'units'})</span></td><td>{money(r.gross_minor)}</td><td>{money(r.fee_minor)}</td><td>{money(r.to_artist_minor)}</td>
+        <td>{r.held_minor > 0 ? <Pill tone="bad">{money(r.held_minor)}</Pill> : money(0)}</td><td>{money(r.refunded_minor)}</td></tr>)}
+    </tbody></table></div>
+    {list.data && !list.data.rows.length && !list.loading && <p className="muted">No sales in this period.</p>}
+    {list.data && <Pager page={page} hasMore={list.data.hasMore} set={setPage} />}
+    <p className="muted">"Sent by Paystack" is the sale price minus the platform fee on sales that were split. Any Paystack processing fee the platform pays is not deducted here.</p>
   </section>
 }
 

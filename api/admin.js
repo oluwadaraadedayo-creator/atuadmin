@@ -8,6 +8,15 @@ const text = (v, min, max, label) => { const s = String(v ?? '').trim(); if (s.l
 const search = (v) => String(v ?? '').trim().slice(0, 100)
 const pick = (v, list, label) => { const s = String(v ?? ''); if (s !== '' && !list.includes(s)) throw bad(`Invalid ${label}`); return s }
 const pageNo = (v) => { const n = v === undefined || v === null ? 0 : Number(v); if (!Number.isInteger(n) || n < 0 || n > 10000) throw bad('Invalid page'); return n }
+// Named date ranges, so the browser never sends raw dates. "month" is the current calendar month (UTC).
+const range = (v) => {
+  if (v !== undefined && v !== null && typeof v !== 'string') throw bad('Invalid range')
+  const r = v === undefined || v === null || v === '' ? 'month' : pick(v, ['month', '30d', 'all'], 'range')
+  const now = new Date()
+  if (r === 'all') return [null, null]
+  if (r === '30d') return [new Date(now.getTime() - 30 * 86400000).toISOString(), null]
+  return [new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString(), null]
+}
 const flag = (v, label) => { if (typeof v !== 'boolean') throw bad(`${label} must be true or false`); return v }
 
 async function rpc(db, name, args) {
@@ -108,6 +117,16 @@ const ACTIONS = {
       if (found?.user?.email) emailed = await sendDecisionEmail(db, { applicationId: id, to: found.user.email, decision, stageName: app.stage_name, note })
     } catch (e) { console.error('decision email failed', e?.message) }
     return { result: { ok: true, emailed }, audit: ['application.decide', 'application', id, { decision, note, userId: app.user_id, emailed }] }
+  },
+
+  // Money by artist. These are this site's own records. Paystack's dashboard is the source of truth for what has really settled.
+  'payouts.totals': async ({ db, p }) => {
+    const [from, to] = range(p.range)
+    return await rpc(db, 'admin_payouts_totals', { p_from: from, p_to: to })
+  },
+  'payouts.list': async ({ db, p }) => {
+    const page = pageNo(p.page); const [from, to] = range(p.range)
+    return listed(await rpc(db, 'admin_payouts_by_artist', { p_from: from, p_to: to, p_limit: PAGE + 1, p_offset: page * PAGE }), page)
   },
 
   // What this project's email settings look like, without revealing the key.
